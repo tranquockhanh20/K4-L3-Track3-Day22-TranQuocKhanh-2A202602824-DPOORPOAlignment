@@ -49,3 +49,6 @@ hf_cache/
 .idea/
 .vscode/
 *.swp
+
+# Downloaded Colab bundle already extracted into tracked evidence files
+lab22_evidence.zip

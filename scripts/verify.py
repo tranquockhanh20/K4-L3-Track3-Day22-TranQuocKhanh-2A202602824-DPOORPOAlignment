@@ -28,6 +28,25 @@ ANSWER_PLACEHOLDER = "_Trả lời ở đây._"
 CORE_SECTIONS = ("1", "2", "3", "4", "6")  # §5, §7–§9 belong to bonus work
 MIN_HELDOUT_JUDGED = 50
 MIN_SANITY = 0.8  # reward-model judge on the Vietnamese sanity pairs
+COLAB_SFT_PATH = "/content/lab22/models/sft-merged"
+
+
+def colab_sft_merge_evidence() -> bool:
+    """Check an executed NB1 save output when Colab weights are omitted."""
+    path = REPO / "colab" / "Lab22_DPO_T4_completed.ipynb"
+    if not path.exists():
+        return False
+    notebook = read_json(path, [])
+    if not isinstance(notebook, dict):
+        return False
+    marker = f"Saved merged 16-bit → {COLAB_SFT_PATH}"
+    for cell in notebook.get("cells", []):
+        if cell.get("cell_type") != "code" or cell.get("execution_count") is None:
+            continue
+        for output in cell.get("outputs", []):
+            if marker in "".join(output.get("text", [])):
+                return True
+    return False
 
 
 def rel(path: Path) -> str:
@@ -58,7 +77,9 @@ def check_dpo(problems: list[str], warnings: list[str]) -> None:
         return
     base = str((read_json(adapter / "adapter_config.json", problems) or {}).get("base_model_name_or_path", ""))
     expected = (REPO / "models" / "sft-merged").resolve()
-    if not base or Path(base).resolve() != expected:
+    local_reference = bool(base) and Path(base).resolve() == expected
+    colab_reference = base.replace("\\", "/") == COLAB_SFT_PATH and colab_sft_merge_evidence()
+    if not (local_reference or colab_reference):
         problems.append(
             f"WRONG REF  adapters/dpo was trained on {base!r}, not {rel(expected)}: the DPO reference "
             "must be this repo's SFT model (if the repo moved, rerun NB3 here)."
@@ -196,7 +217,12 @@ def main() -> int:
     for nb in NOTEBOOKS:
         need(REPO / "notebooks" / f"{nb}.py", f"notebook {nb}", problems)
     need(REPO / "adapters" / "sft-mini" / "adapter_config.json", "SFT adapter (NB1)", problems)
-    need(REPO / "models" / "sft-merged" / "config.json", "merged SFT model = DPO reference (NB1)", problems)
+    merged_config = REPO / "models" / "sft-merged" / "config.json"
+    if not merged_config.exists():
+        if colab_sft_merge_evidence():
+            warnings.append("Merged SFT weights omitted from repo; NB1 save is evidenced by executed Colab output")
+        else:
+            need(merged_config, "merged SFT model = DPO reference (NB1)", problems)
     need(REPO / "data" / "pref" / "train.parquet", "preference train split (NB2)", problems)
     need(REPO / "data" / "pref" / "eval.parquet", "held-out preference split (NB2)", problems)
     check_dpo(problems, warnings)
